@@ -306,7 +306,7 @@ As a whole, the $R^2$ and $R^2adj.$ values tell us that nearly 60% of the variat
 
 As we saw before, `critics_score` is a good predictor of `audience_score`. A less expected correlation is with the variable with the second-lowest p-value in the full model: the number of votes on IMDB (but perhaps suggesting that voting at all has some relationship to positive feelings about a movie). 
 
-There is evidence of collinearity among variables. Most obviously, while a best-picture Oscar nomination for has a positive correlation associated with `audience_score` in this model (+7.60), a best-picture *win* has *negative* association (-4.25) -- odd! By definition, these are collinear measure since a film cannot win an Oscar without first being nominated. So there will be some things to tease out in refining our model through stepwise selection.
+There is evidence of collinearity among variables. Most obviously, while a best-picture Oscar nomination for has a positive correlation associated with `audience_score` in this model (+7.60), a best-picture *win* has *negative* association (-4.25). On its face, this seems odd! By definition, these are collinear measure since a film cannot win an Oscar without first being nominated. So there will be some things to tease out in refining our model through stepwise selection.
 
 ###Refining the Model
 
