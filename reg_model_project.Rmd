@@ -1,0 +1,732 @@
+---
+title: "Regression and Rottenness"
+subtitle: "Predicting online movie ratings"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+### Will they like it? Will they really, really like it? 
+
+In this project, we develop a multiple linear regression model for predicting how audiences will score a movie on an online rating system -- in this case, Rotten Tomatoes -- based on the known value of other parameters such as the film's genre, critical reception, or year of release. 
+
+We train our model on the `movies` dataset: a somewhat cleaned up sample compiled and provided through the "Linear Regression and Modeling" MOOC, one of the sequence of courses offered by Duke University through the Coursera platform as ["Statistics with R"](https://www.coursera.org/specializations/statistics), developed and taught by Mine ?etinkaya-Rundel and others.
+
+* * *
+
+## Getting Set Up
+### Loading packages and data
+
+The R libraries used for this project pull from the standard tidyverse packages `dplyr` (for data handling) and `ggplot2` with `RColorBrewer` (for visualization), along with the MOOC-course-specific `statsr` package that also hosts the `movies` dataset on which the analysis is performed. The `knitr` and `kableExtra` packages allow for a more controlled rendering of tables.
+
+```{r load-packages, message = FALSE}
+
+# Load libraries
+
+library(dplyr)
+library(statsr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(RColorBrewer)
+
+# Load dataset
+
+load("movies.Rdata")
+
+```
+
+* * *
+
+## Part 1: The Movies Dataset
+
+The `movies` dataset collects observations over 32 variables for a randomly sampled set of 651 movies produced and released between 1970 and 2014. (As the histogram of `thtr_rel_year` below shows, however, the sample skews toward more recent films.)
+
+```{r movie-release-date-frequency-in-sample}
+
+# Plot a histogram for the count of movies by year of release date, binwidth set so each year gets its own bar.
+
+pal <- brewer.pal("Blues", n = 5)  # picks an RColorBrewer basic color palette
+
+# Set up plot
+
+p <- ggplot(data = movies, aes(x = thtr_rel_year))
+gp <- geom_histogram(binwidth = 1, alpha = 0.4, color = pal[5], fill = pal[4])
+th <- theme_minimal()
+l <- labs(x = NULL, y = NULL, title = "Movies by Year of Theatrical Release")
+
+# Generate plot
+
+p + gp + th + l
+
+```
+
+The `movies` dataset is observational: it consists of data collected after the fact, not through a planned experimental design with random assignment and controls. So while we can address the strength and predictive significance of correlations among variables (such as running time and audience score), we will not be able to speak to issues of causality (i.e., whether audiences like a movie more or less *because* of its length).
+
+The dataset has some areas of concern, some of which we don't have enough information to reconcile here. We do know that the overall sample size of 651 movies is large enough to allow for conclusions about correlations at a high level of confidence, even at the many degrees of freedom we'll be working with in a multiple variable model. 
+
+But we'll want to be careful to consider how many ratings a given movie's score is based on -- we have this measure for IMDB votes, but not for the Rotten Tomatoes ratings, and we'll be taking a leap of faith here to assume that the number of ratings is comparable. As it stands, the minimum number of IMDB votes for movies included in our dataset sample is a sufficiently large 180, with the median at 15,116 votes.
+
+```{r number-of-ratings-per-movie}
+
+# Basic summary statistics for the `imdb_num_votes` dimension (the number of votes contributing to IMDB audience ratings).
+
+votes <- movies %>%
+  summarise("minimum" = min(imdb_num_votes),
+            "median" = median(imdb_num_votes),
+            "mean" = mean(imdb_num_votes),
+            "maximum" = max(imdb_num_votes))
+
+# Present those stats in a styled, compact, and left-aligned table
+
+kable((votes), 
+      caption = "IMDB Votes per Movie", 
+      digits = 0, 
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(full_width = FALSE, position = "left")
+
+```
+
+Linear regression models also rely for their validity on the independence of observations. And we might well question whether that condition holds here. We'd have to assume, for example, that individuals contributing online ratings to Rotten Tomatoes or IMDB are self-selected and, by definition, engaged participants. And we can't know from our dataset or its codebook whether any particular individual may have contributed more than one rating -- or potentially many, many ratings. Such "super-users" might especially impact the analysis of the less-represented genres: one especially active Grido-shot-first-er might skew the entire nine-film "Science Fiction & Fantasy" subset.
+
+* * *
+
+## Part 2: Research questions
+
+Let's start by exploring three basic questions about the trustworthiness of our basic response measure, how that measure correlates to other potential explanatory variables, and how that correlation might hold across subsets of the data.
+
+### Question One: Do Rotten Tomato Audience Ratings Provide a Useful Measure?
+
+**How well do the ratings systems correlate?** The `movies` dataset offers a few possible response variables around which a predictive linear model for a movie's success could be built. Most obviously, it provides measures drawn from two well-known online sites: [IMDB](https://www.imdb.com/) and [Rotten Tomatoes](https://www.rottentomatoes.com/). IMDB provides an average of audience ratings on a 10-point scale, and Rotten Tomatoes provides both categorical ratings ("Rotten," "Fresh," "Certified Fresh") and numerical scores that represent the percentage of positive reviews by audiences and critics. 
+
+A strong correlation between systems, such as between IMDB and Rotten Tomatoes audience ratings, would give us some confidence in using either as a useful proxy for the other. 
+
+### Question Two: What Are Our Best Explanatory Variables?
+
+**What other factors will predict online audience ratings?** What potential explanatory variables best correlate with our target response variable of the 0- to 100-point Rotten Tomatoes `audience score` for the purpose of developing a simple yet robust mulitple linear regression model? Are any of these surprisingly significant, either in terms of the strength of the correlation or its direction?
+
+### Question Three: Does Genre Matter?
+
+**Will the model we build work equally well for different kinds of movies?** Audiences seek out and enjoy different types of movies for different reasons. The predictors for a brain-teasing documentary's success with audiences might be (or might not be!) pretty different from the predictors for a blood-pumping action & adventure movie. Will our model be equally useful across genres? Or would it make more sense to build different models for each type of film?
+
+Note that this is a question with real-world implications: in order to maximize a film's online reputation (key for a movie's post-theatrical life), would our model suggest that the producers/marketers of a comedy like [*Lady Bird*](https://www.rottentomatoes.com/m/lady_bird) be advised to put their efforts toward factors different from those that would be effective for a drama like [*Gotti*](https://www.rottentomatoes.com/m/gotti_2018)?
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+### Do Rotten Tomato Audience Ratings Provide a Useful Measure?
+
+To begin, we'll look at the correlation between the Rotten Tomatoes `audience_score` and the IMDB `imdb_rating` -- both online rating systems, though with somewhat different purposes and levels of irreverence. Doing so should help us get a sense of whether there's some external validation for using the Rotten Tomatoes score as our main measure of a movie's success with engaged audiences.
+
+```{r imdb-rt-correlation}
+
+# Plot the correlation of IMDB and Rotten Tomatoes audience scores.
+# Include a least-squares regression line to show any linear relation
+
+p <- ggplot(data = movies, aes(x = imdb_rating, y = audience_score)) 
+gp <- geom_jitter(color = pal[5], alpha = 0.5) # RColorBrewer "Blues" palette defined earlier
+gp <- geom_jitter(color = pal[5], alpha = 0.4) 
+th <- theme_minimal()
+l <- labs(x = "IMDB Avg. Rating", y = "Rotten Tomatoes Audience Score", 
+       title = "Online Audience Ratings Correlation",
+       subtitle = "(with linear model line)") 
+lm <- geom_smooth(method = "lm", color = "black", fill = pal[5]) 
+
+p + gp + th + l + lm
+
+# Provide the summary output of a model of that linear relationship
+
+summary(lm(data = movies, audience_score ~ imdb_rating))
+
+```
+
+There is a linear, positive, and strong correlation between these two measures, with the line for the relationship defined by the equation:
+
+$$\widehat{audience\_score} = -42.33 + 16.12{imdb\_rating}$$
+Each point on the 10-point `imdb_rating` scale is associated with a positive 16.12 increase within the 100-point Rotten Tomatoes `audience_score` scale; and the association is a statistically significant predictor, at close to a p-value of 0.
+
+Though there is some skew (and greater variability) toward the lower end of these scores, the overall $R^2$ value of 0.75 (along with the large sample size) suggests we could confidently predict, and within a fairly tight confidence interval, the audience rating for one of these systems given the film's rating in the other. 
+
+It also suggests that the `imdb_rating` will be one explanatory variable to exclude from the predictive model we'll develop, given that its collinearity with `audience_score` would make its inclusion redundant.
+
+### What Are Our Best Explanatory Variables?
+
+Next, we'll consider the explanatory power of variables we might want to include in our predictive model.
+
+Some variables are more obviously predictive than others. For example, the Rotten Tomatoes critics score:
+
+```{r single-variable-regression-critics-score}
+
+# Create single-variable linear model to calculate R squared value
+
+cl <- lm(data = movies, audience_score ~ critics_score)
+cs <- summary(cl)
+cr2 <- cs$r.squared
+
+# Scatterplot with least-squares line (including standard error shading)
+
+p <- ggplot(movies, aes(x = critics_score, y = audience_score)) 
+l <- labs(x = "Rotten Tomatoes Critics' Score", y = "Rotten Tomatoes Audience Score",
+       title = "Single Variable Correlation of Critics and Audience Scores")
+
+p + gp + th + l + lm
+
+```
+
+As a potential predictor for `audience_score`, the `critics_score` will play a useful role in our model, the two variables demonstrating a clearly linear and positive relation in the scatter plot, with a tight error interval shown in the shading around the least-squares line, and an $R^2$ value of `r round(cr2, 3)`.
+
+Other variables, less so. Take `thtr_rel_day`, a variable whose value takes the day of the month (1 through 31) on which a film was released in theaters. The random spray of its scatter and  its $R^2$ value of `r round(summary(lm(data = movies, audience_score ~ thtr_rel_day))$r.squared, 3)` suggests that the day of the month predicts very little about `audience_score`:
+
+
+```{r single-variable-regression-release-day}
+
+# Scatterplot with least-squares line
+
+p <- ggplot(movies, aes(x = thtr_rel_day, y = audience_score))
+l <- labs(x = "Day of Month of Theatrical Release", y = "Rotten Tomatoes Audience Score",
+       title = "Single Variable Correlation of Release Date and Audience Scores")
+
+p + gp + th + l + lm
+
+```
+
+Finally, the explanatory power of some variables might be complicated by the clustered nature of the object under study: people value different kinds of movies for different reasons. We can see this in the differences in both the median `audience_score` and that score's apparent variability when broken out by genre: 
+
+
+```{r genre-variability}
+
+# Create boxplot of audience score broken out by genre
+
+p <- ggplot(data = movies, aes(x = genre, y = audience_score, fill = genre))
+gb <- geom_boxplot(alpha = 0.6) 
+th <- theme_minimal()
+tx <- theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+col <- scale_fill_brewer(palette = "Set3")
+l <- labs(title = "Rotten Tomatoes Audience Score by Genre")
+
+p + gb + th + tx + col + l
+  
+```
+
+Note the striking disparity of the median average score between, say, documentary and horror. But note, also, the disparity of the interquartile range for the various genres (which is to say, the range within which half of all audience scores fall). For musical & performing arts films, not only is the median audience score high, but most scores fell fairly close to this point. In contrast, scores for sci-fi and fantasy films are all over the place.
+
+A glance at the standard deviation of the `audience_score` measure within each genre demonstrates the extent of this issue:
+
+```{r standard-deviation-by-genre}
+
+# Notice the wide disparity among standard deviations from genre to genre
+
+gsd <- movies %>% group_by(genre) %>% 
+  summarise(count = n(), sd = round(sd(audience_score),1)) %>% 
+  arrange(desc(sd))
+
+# Now show it!
+
+gsd %>%
+  kable(col.names = c("Movie Genre", "# of Films", "Standard Deviation"),
+        caption = "Standard Dev. of Rotten Tomatoes audience score, by Genre") %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "hover"),
+                full_width = FALSE,
+                position = "left")
+
+
+```
+
+The question would be whether predictive variables in one genre would work as well in another. For example, while a `best_actress_win` might be explanatory for an art house film, it might not be for a horror movie (and wouldn't apply at all for a documentary).
+
+* * *
+
+## Part 4: Modeling
+
+Some potential explanatory variables we can dispense with immediately in building a model predictive of `audience score`: variables that are primarily about identifying the record (`title`, `thtr_rel_month`, `thtr_rel_day`, `dvd_rel_month`, `dvd_rel_day`, `imdb_url`, `rt_url`), variables with so many levels as to leave too few films in each category (`studio`, `director`, `actor1` through `actor5`), and variables too collinear to be interesting (`imdb_rating` and the Rotten Tomatoes categorical `audience_rating`; and likewise the Rotten Tomatoes categorical `critics_rating` as largely duplicative of the numerical `critics_score`).
+
+This leaves us with `audience_score` as our response variable and with the following explanatory variables: `title_type` (documentary, feature film, tv movie), `genre`, `runtime`, `mpaa_rating`, `thtr_rel_year`, `dvd_rel_year`, `best_pic_nom`, `best_pic_win`, `best_actor_win`, `best_actress_win`, `best_dir_win`, `imdb_num_votes`, `critics_score`, and `top200_box`. 
+
+###Full Model
+
+We'll build our full version of the multilinear model around these fifteen dimensions. From there, in the interest of creating the most practical, parsimonious model to guide the efforts of producers, marketers, streaming-service content buyers, or other stakeholders, we'll build up a smaller model through forward selection, using those variables that best improve the models's predictive power.
+
+In the interest of creating a model that is also human readable, we'll perform transformations on three of our dimensions. Given the broad, exponential range of the number of votes per movie on IMDB that we saw earlier, we'll use the base 10 log of the `imdb_num_votes` variable: this will allow us to understand, using the linear model's coefficient for that variable, the impact of that coefficient on `audience_score` as the number of votes scale up from 1000 to 10,000 to 100,000. And to bring each movie's theatrical and DVD release year into the scale of decades rather than millennia, both `thtr_rel_year` and `dvd_rel_year` will be based on their distance from the earliest year on each scale rather than on their absolute *Anno Domini* value.
+
+NOTE: There are 8 films that have no values for `dvd_rel_year` and 1 with no value for `runtime` in the original `movies` dataset. We omit those observations for our modeling going forward.
+
+```{r final-full-dataset}
+
+# Create model dataset for 15 remaining dimensions, omitting observations with missing information
+
+m <- na.omit(movies %>% 
+               select(audience_score, title_type, genre, runtime, mpaa_rating,
+                      imdb_num_votes, critics_score,
+                      best_pic_nom, best_pic_win, best_actor_win, 
+                      best_actress_win, best_dir_win,
+                      top200_box, thtr_rel_year, dvd_rel_year)
+             )
+
+# Transform IMDB votes and DVD and theatrical release year to be human readable in the model
+
+dvd_min <- min(m$dvd_rel_year)      # 1991
+thtr_min <- min(m$thtr_rel_year)    # 1972
+
+m <- m %>%
+  mutate(log10_imdb_votes = log10(imdb_num_votes),
+         thtr_year = thtr_rel_year - thtr_min,
+         dvd_year = dvd_rel_year - dvd_min)
+
+# Create final dataset with transformed variables replacing originals
+
+m <- m %>% 
+  select(audience_score, title_type, genre, runtime, mpaa_rating, 
+         log10_imdb_votes, critics_score,
+         best_pic_nom, best_pic_win, best_actor_win, best_actress_win, 
+         best_dir_win, top200_box, thtr_year, dvd_year)
+
+```
+
+Now, we can build a linear model based on the full range of variables in our final dataset:
+
+```{r full-linear-model}
+
+# Build a full linear model using all fifteen possible explanatory variables
+
+lm_full <- lm(data = m, audience_score ~ .)
+
+# Show the summary outpt of this model
+
+summary(lm_full)
+
+```
+
+As a whole, the $R^2$ and $R^2adj.$ values tell us that nearly 60% of the variation in our response variable `audience_score` can be explained by the variation in our other explanatory variables.
+
+As we saw before, `critics_score` is a good predictor of `audience_score`. A less expected correlation is with the variable with the second-lowest p-value in the full model: the number of votes on IMDB (but perhaps suggesting that voting at all has some relationship to positive feelings about a movie). 
+
+There is evidence of collinearity among variables. Most obviously, while a best-picture Oscar nomination for has a positive correlation associated with `audience_score` in this model (+7.60), a best-picture *win* has *negative* association (-4.25) -- odd! By definition, these are collinear measure since a film cannot win an Oscar without first being nominated. So there will be some things to tease out in refining our model through stepwise selection.
+
+###Refining the Model
+
+Next, we start over from scratch to build up a simpler, more operationally practical model based on forward selection -- testing explanatory values one at a time, determining the variable that adds the most value to the model at each stage, then repeating the process until adding any new variables does not improve the model. For our purposes, that "until" will be based on the point where we see no improvement to the $R^2 adj.$ value; this is the point at which the predictive value added by a variable is outweighed by the sacrifice we'd be making in terms of our model's degrees of freedom.
+
+The process will look like this:
+
+```{r forward-selection}
+
+# Add one variable at a time to the current zero-variable model and track the best adjusted R-squared value
+
+summary(lm_0 <- lm(data = m, audience_score ~ title_type))
+
+```
+
+... though in the interest of space and sanity, we'll do this cooking-show style and simply reveal the top result for each round as we go.
+
+In our first round, we find that the Rotten Tomatoes `critics_score` serves as the single best explanatory variable for our model (result: $R^2adj. = 0.4895$)
+
+```{r forward-selection-round-one}
+
+summary(lm_1 <- lm(data = m, audience_score ~ 
+                     critics_score))$adj.r.squared
+
+```
+
+In round two, we add `genre` to the model (result: $R^2adj. = 0.5142$)
+
+```{r forward-selection-round-two}
+
+summary(lm_2 <- lm(data = m, audience_score ~ 
+                     critics_score + genre))$adj.r.squared
+
+```
+
+Next, we add the base 10 log of the number of votes on IMDB (`log10_imdb_votes`) to the model (result: $R^2adj. = 0.5644$)
+
+```{r forward-selection-round-three}
+
+summary(lm_3 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes))$adj.r.squared
+
+```
+
+Then: the year of the movie's DVD release, relative to the earliest DVD-release year in the dataset (`dvd_year`) (result: $R^2adj. = 0.5803$)
+
+```{r forward-selection-round-four}
+
+summary(lm_4 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year))$adj.r.squared
+
+```
+
+Adding the variable for a movie's `mpaa_rating` (G, PG, PG-13, R, NC-17, Unrated) improves the model slightly (result: $R^2adj. = 0.5818$)
+
+```{r forward-selection-round-five}
+
+summary(lm_5 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating))$adj.r.squared
+
+```
+
+...As does `best_pic_nom` -- an Oscar nomination for Best Picture (result: $R^2adj. = 0.5833$).
+
+```{r forward-selection-round-six}
+
+summary(lm_6 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom))$adj.r.squared
+
+```
+
+The presence of an Oscar-winning actress (`best_actress_win`, not necessarily for the current movie) also improves the model (result: $R^2adj. = 0.5846$).
+
+```{r forward-selection-round-seven}
+
+summary(lm_7 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom + 
+                     best_actress_win))$adj.r.squared
+
+```
+ ...As does `best_actor_win` (result: $R^2adj. = 0.5856$)
+
+```{r forward-selection-round-eight}
+
+summary(lm_8 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom + 
+                     best_actress_win + best_actor_win))$adj.r.squared
+
+```
+
+
+Marginal improvement is provided by including the year of the movie's theatrical release, relative to the earliest theatrical-release year in the dataset (`thtr_year`) (result: $R^2adj. = 0.5859$)
+
+```{r forward-selection-round-nine}
+
+summary(lm_9 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom + 
+                     best_actress_win + best_actor_win + thtr_year))$adj.r.squared
+
+```
+
+We add `title_type` (Documentary, Feature Film, TV Movie) (result: $R^2adj. = 0.5862$)
+
+```{r forward-selection-round-ten}
+
+summary(lm_10 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom + 
+                     best_actress_win + best_actor_win + thtr_year +
+                      title_type))$adj.r.squared
+
+```
+
+
+And the final round for which a variable improves the $R^2adj.$ measure adds the slight improvement provided by `best_dir_win` (the presence of an Oscar-winning director).
+
+Here's the full summary of our final optimized model, with an $R^2adj.$ value of $0.5864$.
+
+
+```{r forward-selection-round-eleven}
+
+# Build the model for round eleven
+
+lm_11 <- lm(data = m, audience_score ~ 
+                     critics_score + genre + log10_imdb_votes + 
+                     dvd_year + mpaa_rating + best_pic_nom + 
+                     best_actress_win + best_actor_win + thtr_year +
+                      title_type + best_dir_win)
+
+# Save it as the final model and provide the model's summary output.
+
+lm_final <- lm_11
+summary(lm_final)
+
+```
+
+Our final multiple lineary regression model `lm_final` includes 12 of the original `movies` dataset's variables, and excludes three (`runtime`, `best_pic_win`, and `top200_box`) that we had considered in the full model but that did not create sufficient value for our optimized version. 
+
+The 12 remaining variables consist of the numeric response variable along with 4 numeric, 4 two-level categorical, and 3 multi-level categorical explanatory variables. I'll note that its $R^2adj.$ value of $0.5864$ improves only very slightly (by about $0.16$ of a percentage point) over the full model's $0.5848$, and does so without signficantly simplifying the model. So in real practice, given the danger of overfitting to our particular sample, and given the desire to have a model that's relative easy to explain to producers, marketers, media buyers, etc., we might opt for a more parsimonious model that would exclude some of the later additions -- say, those after the fourth or fifth round -- that only offered marginal improvements.
+
+* * *
+
+## Part 5: Prediction
+
+In equation form, our model for prediction `audience_score` can be expressed (with some rounding) as:
+
+$$\begin{aligned}
+\widehat{audience\_score} = &15.6 + 0.4 \times {critics\_score} + 7.1 \times {genreAnimation}\\
+&+ 15.2 \times {genreArt\ House\ \&\ International} + 2.7 \times {genreComedy} \\
+&+ 16.5 \times {genreDocumentary} + 7.3 \times {genreDrama} - 5.5 \times {genreHorror}\\
+&+ 17.2 \times {genreMusical\ \&\ Performing\ Arts} - 0.4 \times {genreMystery\ \&\ Suspense} \\
+&- 3.2 \times {genreScience\ Fiction\ \&\ Fantasy} + 1.2 \times {genreOther} \\
+&+ 8.8 \times {log10\_imdb\_votes} - 0.5 \times {dvd\_year}\\
+&- 1.5 \times {mpaa\_ratingPG} - 3.7 \times {mpaa\_ratingPG\mbox{-}13} - 1.5 \times {mpaa\_ratingR} \\
+&- 8.8 \times {mpaa\_ratingNC\mbox{-}17} + 3.4 \times {mpaa\_ratingUnrated} \\
+&+ 6.6 \times {best\_pic\_nomyes} - 2.6 \times {best\_actress\_winyes} - 2.3 \times {best\_actor\_winyes} \\
+&- 0.1 \times {thtr\_year} -6.8 \times {title\_typeFeature\ Film} - 10.9 \times {title\_typeTV\ Movie} \\
+&- 2.4 \times {best\_dir\_winyes} 
+\end{aligned}$$
+
+...where all the variables for genre, MPAA rating, title type, or Oscar nominations/wins will take the value of either $0$ or $1$.
+
+So, for example, we would expect a PG-rated documentary released both theatrically and on DVD in 2014 with 90,000 votes on IMDB and a Rotten Tomatoes critics score of 92 to receive a Rotten Tomatoes audience score of:
+
+$$\begin{aligned}
+&15.6 + 0.4 \times 92 + 0 + 0 + 0 + 16.5 + 0 + 0 + 0 + 0 + 0 + 0 \\
+&+ 8.8 \times log_{10}90000 - 0.5 \times (2014 - 1991) - 1.5 + 0 + 0 + 0\\
+&+ 0 + 0 + 0 - 0.1 \times (2014 - 1972) + 0 + 0 + 0 = 96.8
+\end{aligned}$$
+
+Or, using R's `predict()` function, we can test our model on some real world examples from outside the dataset.
+
+Let's start with *I Am Not Your Negro*: a 2017 film directed by Raoul Pecke about American author James Baldwin (in movie news these days as the author of the source novel for Barry Jenkins's film *If Beale Street Could Talk*), and a film not that far off from the hypothetical example I just gave: an Oscar-nominated documentary (though not for overall best picture) with a Rotten Tomatoes critics score of 98 and 13,320 votes on IMDB. 
+
+![*I Am Not Your Negro*, Magnolia Pictures, 2017](https://m.media-amazon.com/images/M/MV5BMzUzOTE2NTUzNF5BMl5BanBnXkFtZTgwMTg2NDEwMTI@._V1_.jpg)
+
+Using our model and assuming we want to achieve a 95% confidence interval, we get the following results:
+
+```{r prediction-i-am-not-your-negro}
+
+# Create data frame with movie's information
+
+i_am_not <- data.frame(critics_score = 98, genre = "Documentary", log10_imdb_votes = log10(13424), dvd_year = (2017 - dvd_min), mpaa_rating = "PG-13", best_pic_nom = "no", best_actress_win = "no", best_actor_win = "no", thtr_year = (2017 - thtr_min), title_type = "Documentary", best_dir_win = "no")
+
+# Pass these values to the predictive model, and also construct the confidence interval around the fitted result.
+
+predict(lm_final, i_am_not, interval = "prediction", level = 0.95)
+
+```
+
+The model predicts a Rotten Tomatoes audience score of 83.8 for a film sharing the qualities of *I Am Not Your Negro*, and predicts with 95% certainty that the score would fall between 57.7 and 109.9 (though 100 is the upper limit for the score). And in fact, as of March 2, 2019  *I Am Not Your Negro* holds a Rotten Tomatoes audience score of 83. Pretty close!
+
+Two other examples -- both famous/infamous within the Rotten Tomatoes universe -- might be interesting to play through our model: 2017's *Lady Bird* (a coming-of-age comedy that for many weeks after its release held a 100% no-rotten-tomatoes score), and 2018's *Gotti* (the mobster bio-pic drama that as of this writing continues to have a perfect  all-rotten-tomatoes score of zero "fresh" ratings).
+
+The current audience score for *Lady Bird* on Rotten Tomatoes -- a movie with an almost perfect critics score, a large number of IMDB votes, a comedy, and a nominee for Best Picture -- is what seems to me a surprisingly low 79. But what would the model predict?
+
+![*Lady Bird*, A24, 2017](https://resizing.flixster.com/RRFUZ_gROKtRtP9VuJcaOQ9HVrM=/fit-in/1152x864/v1.bjsxODE1NDM3O2o7MTgwMjE7MTIwMDszMDAwOzIwMDQ)
+
+```{r lady-bird}
+
+# Create data frame with movie's information. 
+# NOTE - I'm calling this a comedy, because it's very funny. IMDB classes it as "Comedy, Drama."
+
+lady_bird <- data.frame(critics_score = 99, genre = "Comedy", log10_imdb_votes = log10(169117), dvd_year = (2018 - dvd_min), mpaa_rating = "R", best_pic_nom = "yes", best_actress_win = "no", best_actor_win = "no", thtr_year = (2017 - thtr_min), title_type = "Feature Film", best_dir_win = "no")
+
+# Pass these values to the predictive model, and also construct the confidence interval around the fitted result.
+
+predict(lm_final, lady_bird, interval = "prediction", level = 0.95)
+
+```
+
+I may have been surprised by the actual 79 score, but the model wasn't: it predicts an `audience_score` of 81.7, within the 95% confidence interval between 55.2 and 108.2.
+
+And what about *Gotti*: a drama with an ultra-low critics score, a low number of IMDB votes, and nothing in the way of Oscar nominations (and hence no possible wins)? On Rotten Tomatoes, the audience score currently stands at 48. What does the model predict?
+
+![*Gotti*, Vertical Entertainment, 2018](https://resizing.flixster.com/6xDqllyN03zGsQ-gDmLl0jN4aX8=/fit-in/1152x864/v1.bjsxNTg5ODAwO2o7MTgwMTg7MTIwMDs1NzczOzM4NDk)
+
+```{r gotti}
+
+# Create data frame with movie's information. 
+# NOTE - I'm calling this a drama, because it's meant to be. But some might put it in the so-bad-it's-comedy category.
+
+gotti <- data.frame(critics_score = 0, genre = "Drama", log10_imdb_votes = log10(8845), dvd_year = (2018 - dvd_min), mpaa_rating = "R", best_pic_nom = "no", best_actress_win = "no", best_actor_win = "no", thtr_year = (2018 - thtr_min), title_type = "Feature Film", best_dir_win = "no")
+
+# Pass these values to the predictive model, and also construct the confidence interval around the fitted result.
+
+predict(lm_final, gotti, interval = "prediction", level = 0.95)
+
+```
+
+In this case, actual audiences are more generous than our model, which predicts with 95% confidence that a film like *Gotti* would receive an audience score between 5.5 and 57.2, but with a predicted value of 31.3 pretty far below the actual current Rotten Tomatoes audience score of 48.
+
+* * *
+
+## Part 6: Conclusion
+
+The linear model we've been able to create for understanding `audience_score` from other dimensions of the `movies` dataset is sensitive -- even for outlier films like *Lady Bird* and *Gotti*, we can establish a significant correlation to explanatory variables such as the year of the film's DVD release and the number of votes racked up for the movie on IMDB, and we can use that correlation to make predictions about `audience_score` with 95% confidence.
+
+And yet, while sensitive, the model is not terribly specific -- a 50-plus-point spread on what is, after all, only a 100-point scale is a pretty broad confidence interval. Note that while the intervals for *Lady Bird* (with a low-end cutoff of 55.2) and *Gotti* (with a high-end cutoff of 57.2) overlap by only 2 points, they do overlap: our model can't entirely differentiate heroes from zeroes. 
+
+###Residuals
+
+Performing some diagnostic tests on our model demonstrates this.
+
+On the one hand, our model fares pretty well in terms of linearity, as shown in the normal distribution in a histogram of residual differences between the predicted and actual values for `audience_score` [across 642 observation records - movies]...
+
+```{r histogram-of-residuals}
+
+hist(lm_final$residuals)
+
+```
+
+...the degree to which our residual values hue to the line of a normal probability plot...
+
+```{r normal-probability-plot-of-residuals}
+
+qqnorm(lm_final$residuals)
+qqline(lm_final$residuals)
+
+```
+
+...and by the random scatter around zero of across observations
+
+...but heteroscedastity in a plot of residuals vs. the fitted (predicted) values:
+
+
+
+```{r residuals-plot}
+
+m$DramCom <- as.factor(ifelse(m$genre == "Drama", "Drama",
+                              ifelse(m$genre == "Comedy", "Comedy",
+                                     "Other")))
+m$DramYes <- as.factor(ifelse(m$genre == "Drama", "Drama", "Other"))
+m$ComYes <- as.factor(ifelse(m$genre == "Comedy", "Comedy", "Other"))
+m$ActionYes <- as.factor(ifelse(m$genre == "Action & Adventure", "Action & Adventure", "Other"))
+m$MysteryYes <- as.factor(ifelse(m$genre == "Mystery & Suspense", "Mystery & Suspense", "Other"))
+m$DocYes <- as.factor(ifelse(m$genre == "Documentary", "Documentary", "Other"))
+
+
+plot(lm_final$fitted.values, lm_final$residuals, col = m$DramCom)
+legend('topright', legend = levels(m$DramCom), col = 1:3, cex = 0.8, pch =1)
+
+# How to control colors?
+# Better way to go this in ggplot?
+
+ab <- geom_hline(yintercept = 0)
+pt <- geom_jitter()
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$DramCom)) + pt + ab
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$DramCom)) + pt + ab
+
+# One genre at a time
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$DramYes)) + pt + ab
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$DramYes)) + pt + ab
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$ComYes)) + pt + ab
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$ComYes)) + pt + ab
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$ActionYes)) + pt + ab
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$ActionYes)) + pt + ab
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$MysteryYes)) + pt + ab
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$MysteryYes)) + pt + ab
+
+ggplot(lm_final, aes(x = 1:length(lm_final$residuals), y = .resid, color = m$DocYes)) + pt + ab +
+  geom_smooth(method = "lm")
+ggplot(lm_final, aes(x = .fitted, y = .resid, color = m$DocYes)) + pt + ab
+
+
+
+# see https://drsimonj.svbtle.com/visualising-residuals
+# and https://community.rstudio.com/t/ggplot-makes-residual-plots/738/2
+
+```
+
+But, again, note how that last plot illustrates the broad interval within which our predicted scores have to fall in order to allow us to make our predictions at a 95% confidence level -- particularly toward the lower end of the scale where we are looking at movies that are liked, but not well-liked.
+
+[Heteroscedastity - meaning that the residuals get larger as the prediction moves from small to large (or from large to small)]
+
+Say more about the problem in this fan-shaped plot, where our model is better at predicting on the high end, and where it's harder to predict on the low end.
+
+
+... then lets look at that by genre: note drama all over the place, while mystery & comedy pretty tight. Genre as an issue.
+
+###Section Subtitle
+
+This points us back to our third research question: "Will the model we build work equally well for different kinds of movies?" In other words, given the different reasons that audiences seek out and enjoy different kind of movies, is there any reason to think the same set of predictors and the weight given to each would equally successfully target both documentaries and action movies or any other genre?
+
+We see this in the residuals plots, if we look at some different genres. [Maybe do four plots, with one color highlighted in each, so it's clearer. Figure out how to have a checkerboard of plots in ggplot]
+
+As Netflix knows, and as a whole sub-industry built around recommender systems has to assume, aesthetics are a niche game: one person's sci-fi treasure is another person's action-and-adventure trash. And though even those categorical distinctions are broader than, say, "Crime Procedurals with a Strong Female Lead" or [whatever], they might be a place to start in exploring how we'd have to build different linear models based on clustering by kind of movie. 
+
+So let's see how we can do with training a model on at least two of our genres and then testing each model on the other genre's data. 
+
+```{r build-genre-datasets}
+
+m_drama <- m %>% filter(genre == "Drama") %>% select(-genre)
+m_comedy <- m %>% filter(genre == "Comedy") %>% select(-genre)
+m_action <- m %>% filter(genre == "Action & Adventure") %>% select(-genre)
+m_mystery <- m %>% filter(genre == "Mystery & Suspense") %>% select(-genre)
+m_documentary <- m %>% filter(genre == "Documentary") %>% select(-genre)
+
+```
+
+Indeed, simply building an optimized model for each of our genres with at least 30 movies -- Drama, Comedy, Action & Adventure, Mystery & Suspense, and Documentary -- suggests the way they pose different challenges for the set of dimensions our dataset gives us to work with, with some genre-specific models able to outperform our all-movie model considerably (a model refined for "Mystery & Suspense" has an $R^2adj.$ value of $0.7258$) and some underperforming it by quite a bit (a model refined for "Documentary" staggers in at a mere $R^2adj. = 2019$).
+
+```{r regression-model-mystery}
+
+summary(lm_mystery <- lm(data = m_mystery, audience_score ~
+                   critics_score + log10_imdb_votes + dvd_year +
+                   best_pic_nom + thtr_year + mpaa_rating + 
+                   best_actress_win))$adj.r.squared
+
+```
+
+```{r regression-model-documentary}
+
+summary(lm_documentary <- lm(data = m_documentary, audience_score ~
+                       critics_score + best_actress_win + mpaa_rating + 
+                       best_actor_win + title_type + log10_imdb_votes + 
+                       dvd_year))$adj.r.squared
+
+```
+See how well full model does within each genre > lm_m_comedy <- lm(data = m_comedy, audience_score ~.). Consider how many of the genres over/under-perform the first full model we built on all genres.
+
+```{r regression-model-comedy}
+
+lm_comedy <- lm(data = m_comedy, audience_score ~ 
+                  critics_score + log10_imdb_votes + dvd_year + 
+                  mpaa_rating + runtime + title_type + thtr_year)
+
+summary(lm_comedy)
+
+# runtime a factor here not in all-movie model, and none of the Oscar category factors added to this model
+# 7 pct points more of variation explained by single-genre model than all-movie-model
+
+```
+
+```{r regression-model-drama}
+
+lm_drama <- lm(data = m_drama, audience_score ~ 
+                 critics_score + log10_imdb_votes + dvd_year + 
+                 best_actor_win + runtime + best_actress_win + 
+                 mpaa_rating + best_pic_win + best_pic_nom)
+
+summary(lm_drama)
+
+# runtime, + 4 Oscar categories
+# Even restricting to single-genre, model underperforms the all-genre model. Dramas harder to predict.
+
+```
+
+```{r regression-model-action}
+
+lm_action <- lm(data = m_action, audience_score ~ 
+                  critics_score + mpaa_rating + thtr_year + 
+                  dvd_year)
+
+summary(lm_action)
+
+# Only 4 explanatory variables needed to exceed general model's adj. R squared
+# Many of the usual indicators -- Oscar wins, IMDB votes -- unnecessary
+
+```
+
+
+
+
+
+Note: not all will work as full models if any of the categorical variables have one a single level, i.e., documentaries will only have one `title_type`. But each could still be built up like I did for `lm_m_final`. 
+
+Then train and test the two most dramatic.]
+
+Comedy and Drama not drastically different, though drama harder to predict than comedy (which outperforms general model by 7 pct. points), and comedy unconcerned with Oscar categories while drama is.
+
+Show these residuals.
