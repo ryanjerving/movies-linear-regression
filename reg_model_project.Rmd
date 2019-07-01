@@ -1,6 +1,7 @@
 ---
 title: "Rottenness and Regression"
 subtitle: "Predicting online movie ratings"
+author: "Ryan Jerving"
 output: 
   html_document: 
     fig_height: 4
@@ -819,9 +820,11 @@ gp + pt + col + hl + th + lb + gs
 
 ```
 
-Even more interesting, perhaps, is that this Comedy focused model mobilizes a somewhat different set of significant variables than the general: anything Oscar-nomination related is gone, release year (DVD or theatrical) are only *just* significant, and `runtime` emerges as a surprising, highly significant variable with a negative coefficient. The soul of wit is, indeed, brevity, it turns out, with comedies in danger of overstaying their welcome!
+Even more interesting, perhaps, is that this Comedy focused model mobilizes a somewhat different set of significant variables than the general model selected. Anything Oscar-nomination related is gone, release year (DVD or theatrical) are only *just* significant, and `runtime` emerges as a surprising, highly significant variable with a negative coefficient. As it turns out, the soul of wit is, indeed, brevity. And comedies are in danger of overstaying their welcome!
 
-And since the same danger applies to academic exercises like this one, I'll take the hint and end our explorations here. We've seen how an effective predictive model can be built through multiple regression linking the significanc, weight, and direction of a number of explanatory variables on the value of a response variable we'd like to better understand. And we've also seen some of the limitations of that model in terms of limited specificity and high heteroscedastity when those predictions attempt to cover observations that might be better grouped and focused to take into account structural differences within a dataset, pointing toward directions in which we might take our research further.
+And since the same danger applies to academic exercises like this one, I'll take the hint and end our explorations here. We've seen how an effective predictive model can be built through multiple regression linking the significance, weight, and direction of impact of a number of explanatory variables on the value of a response variable in a dataset that we'd like to understand better. And we've also seen some of the limitations of that model in terms of lack of specificity and high heteroscedasticity when those predictions attempt to cover diverse kinds of observations that might be better grouped and focused within their own distinct models, pointing toward directions in which we might take our research further.
 
-But now its time to butter up some popcorn, wrassle up a lap cat, and sit down for a Sunday night at the movies. So, let's see, what was the running time on *Paterson*? And is it a drama, or comedy, or what, really?...
+But right now its time to butter up some popcorn, wrassle up a lap cat, and sit down for a Sunday night at the movies. So, let's see, what was the running time on *Paterson*? And is it a drama, or comedy, or what, really?...
+
+---
 
