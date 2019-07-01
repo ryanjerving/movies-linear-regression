@@ -1,5 +1,5 @@
 ---
-title: "Regression and Rottenness"
+title: "Rottenness and Regression"
 subtitle: "Predicting online movie ratings"
 output: 
   html_document: 
@@ -550,7 +550,7 @@ In this case, actual audiences are more generous than our model, which predicts 
 
 * * *
 
-## Part 6: ConclusionS & Further Directions
+## Part 6: Conclusions & Further Directions
 
 The linear model we've been able to create for understanding `audience_score` from other dimensions of the `movies` dataset is sensitive. Even for outlier films like *Lady Bird* and *Gotti*, we can establish a significant correlation to explanatory variables such as the year of the film's DVD release and the number of votes racked up for the movie on IMDB, and we can use that correlation to make predictions about `audience_score` with 95% confidence.
 
@@ -747,7 +747,7 @@ Indeed, building an optimized model for just two of the genres for which our ori
 m_mystery <- m %>% filter(genre == "Mystery & Suspense") %>% select(-genre)
 m_comedy <- m %>% filter(genre == "Comedy") %>% select(-genre)
 
-# Train and optimize a model for the "mystery" sub-dataset
+# Train and optimize a model for the "mystery" sub-dataset (trials not shown)
 
 lm_mystery <- lm(data = m_mystery, audience_score ~
                    critics_score + log10_imdb_votes + dvd_year +
@@ -760,7 +760,7 @@ summary(lm_mystery)
 
 The particular collection of significant variables didn't change much -- critics' avg. score, number of votes on IMDB, year of release (both DVD & theatrical), "Best Picture" nomination -- but the balance of each provided by the coefficient did. 
 
-And the impact on residuals is to essentially eliminate the heteroscedasticity we've seen in the low-end fan shape of our general model when comparing predicted to actual variables. Note that a regression line added to indicate the predicted/actual relationship is all but identical with our reference zero line.
+And the impact on residuals is to essentially eliminate the heteroscedasticity we've seen in the low-end fan shape of our general model when comparing predicted to actual variables. Note that a regression line added to indicate the predicted/actual relationship for our Mystery & Suspense model is all but identical with our reference zero line.
 
 ```{r residuals-mystery-model}
 
@@ -784,7 +784,7 @@ gp + pt + col + hl + th + lb + gs
 
 ```
 
-A model designed around Comedy doesn't improve on the general model's $R^2adj.$ value of $0.5864$ quite as much as our Mystery & Suspense model does, though it comes in at a respectably improved $R^2adj.$ value of $0.6536$. But what's interesting is that it mobilizes a somewhat different set of significant variables, with anything Oscar-nomination related gone, release year (DVD or theatrical) only *just* significant, and the surprising appearance of `runtime` as a highly significant variable with a negative coefficient. The soul of wit is, indeed, brevity, it turns out, with comedies in danger of overstaying their welcome!
+A model designed around Comedy doesn't improve on the general model's $R^2adj.$ value of $0.5864$ quite as much as our Mystery & Suspense model does, though it comes in at a respectably improved $R^2adj.$ value of $0.6536$. 
 
 ```{r regression-model-comedy}
 
@@ -796,7 +796,7 @@ summary(lm_comedy)
 
 ```
 
-And as with Mystery & Suspense, the distribution of our Comedy model's residuals across the range of prediction scores flattens out the heteroscedasity we saw when comedies were buried within the general model. Here, the variation of predictive error holds largely steady across the range, suggesting this generically specific model is, in fact, a more useful model than then general.
+As with our Mystery & Suspense model, the distribution of our Comedy model's residuals across the range of prediction scores flattens out the heteroscedasity we saw when comedies were buried within the general model. Here, the variation of predictive error holds largely steady across the range, suggesting this generically specific model is, in fact, a more useful model than then general.
 
 ```{r residuals-comedy-model}
 
@@ -819,7 +819,9 @@ gp + pt + col + hl + th + lb + gs
 
 ```
 
-TO DO: So here we are. What have we learned? What would we want to learn next?
-Other ways of chopping up films? Are older films harder to predict than newer?
-eND WITH NEED FOR FURTHER REFINEMENT AND RESEARCH.
+Even more interesting, perhaps, is that this Comedy focused model mobilizes a somewhat different set of significant variables than the general: anything Oscar-nomination related is gone, release year (DVD or theatrical) are only *just* significant, and `runtime` emerges as a surprising, highly significant variable with a negative coefficient. The soul of wit is, indeed, brevity, it turns out, with comedies in danger of overstaying their welcome!
+
+And since the same danger applies to academic exercises like this one, I'll take the hint and end our explorations here. We've seen how an effective predictive model can be built through multiple regression linking the significanc, weight, and direction of a number of explanatory variables on the value of a response variable we'd like to better understand. And we've also seen some of the limitations of that model in terms of limited specificity and high heteroscedastity when those predictions attempt to cover observations that might be better grouped and focused to take into account structural differences within a dataset, pointing toward directions in which we might take our research further.
+
+But now its time to butter up some popcorn, wrassle up a lap cat, and sit down for a Sunday night at the movies. So, let's see, what was the running time on *Paterson*? And is it a drama, or comedy, or what, really?...
 
